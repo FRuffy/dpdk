@@ -8,18 +8,18 @@ API and ABI deprecation notices are to be posted here.
 Deprecation Notices
 -------------------
 
-* eal: several API and ABI changes are planned for ``rte_devargs`` in v18.02.
-  The format of device command line parameters will change. The bus will need
-  to be explicitly stated in the device declaration. The enum ``rte_devtype``
-  was used to identify a bus and will disappear.
-  The structure ``rte_devargs`` will change.
-  The ``rte_devargs_list`` will be made private.
-  The following functions are deprecated starting from 17.08 and will either be
-  modified or removed in 18.02:
+* eal: both declaring and identifying devices will be streamlined in v18.05.
+  New functions will appear to query a specific port from buses, classes of
+  device and device drivers. Device declaration will be made coherent with the
+  new scheme of device identification.
+  As such, ``rte_devargs`` device representation will change.
 
-  - ``rte_eal_devargs_add``
-  - ``rte_eal_devargs_type_count``
-  - ``rte_eal_parse_devargs_str``, replaced by ``rte_eal_devargs_parse``
+  - removal of ``name`` and ``args`` fields.
+  - The enum ``rte_devtype`` was used to identify a bus and will disappear.
+  - Functions previously deprecated will change or disappear:
+
+    + ``rte_eal_devargs_type_count``
+    + ``rte_eal_devargs_parse`` will change its format and use.
 
 * pci: Several exposed functions are misnamed.
   The following functions are deprecated starting from v17.11 and are replaced:
@@ -28,11 +28,25 @@ Deprecation Notices
   - ``eal_parse_pci_DomBDF`` replaced by ``rte_pci_addr_parse``
   - ``rte_eal_compare_pci_addr`` replaced by ``rte_pci_addr_cmp``
 
+* eal: a new set of mbuf mempool ops name APIs for user, platform and best
+  mempool names have been defined in ``rte_mbuf`` in v18.02. The uses of
+  ``rte_eal_mbuf_default_mempool_ops`` shall be replaced by
+  ``rte_mbuf_best_mempool_ops``.
+  The following function is now redundant and it is target to be deprecated
+  in 18.05:
+
+  - ``rte_eal_mbuf_default_mempool_ops``
+
+* mbuf: The opaque ``mbuf->hash.sched`` field will be updated to support generic
+  definition in line with the ethdev TM and MTR APIs. Currently, this field
+  is defined in librte_sched in a non-generic way. The new generic format
+  will contain: queue ID, traffic class, color. Field size will not change.
+
 * ethdev: a new Tx and Rx offload API was introduced on 17.11.
   In the new API, offloads are divided into per-port and per-queue offloads.
   Offloads are disabled by default and enabled per application request.
-  The old offloads API is target to be deprecated on 18.05. This includes:
 
+  In later releases the old offloading API will be deprecated, which will include:
   - removal of ``ETH_TXQ_FLAGS_NO*`` flags.
   - removal of ``txq_flags`` field from ``rte_eth_txconf`` struct.
   - removal of the offloads bit-field from ``rte_eth_rxmode`` struct.
@@ -51,11 +65,9 @@ Deprecation Notices
   director APIs. There is no ABI/API break. This change will just remove a
   global configuration setting and require explicit configuration.
 
-* librte_meter: The API will change to accommodate configuration profiles.
-  Most of the API functions will have an additional opaque parameter.
+* pdump: As we changed to use generic IPC, some changes in APIs and structure
+  are expected in subsequent release.
 
-* ring: The alignment constraints on the ring structure will be relaxed
-  to one cache line instead of two, and an empty cache line padding will
-  be added between the producer and consumer structures. The size of the
-  structure and the offset of the fields will remain the same on
-  platforms with 64B cache line, but will change on other platforms.
+  - ``rte_pdump_set_socket_dir`` will be removed;
+  - The parameter, ``path``, of ``rte_pdump_init`` will be removed;
+  - The enum ``rte_pdump_socktype`` will be removed.

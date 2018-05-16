@@ -11,6 +11,10 @@ dpdk_conf.set('RTE_MACHINE', machine)
 machine_args = []
 machine_args += '-march=' + machine
 
+toolchain = cc.get_id()
+dpdk_conf.set_quoted('RTE_TOOLCHAIN', toolchain)
+dpdk_conf.set('RTE_TOOLCHAIN_' + toolchain.to_upper(), 1)
+
 # use pthreads
 add_project_link_arguments('-pthread', language: 'c')
 dpdk_extra_ldflags += '-pthread'
@@ -36,6 +40,14 @@ if numa_dep.found() and cc.has_header('numaif.h')
 	has_libnuma = 1
 	add_project_link_arguments('-lnuma', language: 'c')
 	dpdk_extra_ldflags += '-lnuma'
+endif
+
+# check for strlcpy
+if host_machine.system() == 'linux' and cc.find_library('bsd',
+		required: false).found() and cc.has_header('bsd/string.h')
+	dpdk_conf.set('RTE_USE_LIBBSD', 1)
+	add_project_link_arguments('-lbsd', language: 'c')
+	dpdk_extra_ldflags += '-lbsd'
 endif
 
 # add -include rte_config to cflags

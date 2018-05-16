@@ -1,6 +1,6 @@
 /* SPDX-License-Identifier: BSD-3-Clause
  * Copyright 2017 6WIND S.A.
- * Copyright 2017 Mellanox.
+ * Copyright 2017 Mellanox Technologies, Ltd
  */
 
 #ifndef _RTE_ETH_TAP_H_
@@ -15,6 +15,7 @@
 
 #include <rte_ethdev_driver.h>
 #include <rte_ether.h>
+#include "tap_log.h"
 
 #ifdef IFF_MULTI_QUEUE
 #define RTE_PMD_TAP_MAX_QUEUES	TAP_MAX_QUEUES

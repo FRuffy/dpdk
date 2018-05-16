@@ -5,7 +5,7 @@ I40E Poll Mode Driver
 ======================
 
 The I40E PMD (librte_pmd_i40e) provides poll mode driver support
-for the Intel X710/XL710/X722 10/40 Gbps family of adapters.
+for the Intel X710/XL710/X722/XXV710 10/25/40 Gbps family of adapters.
 
 
 Features
@@ -40,6 +40,7 @@ Features of the I40E PMD are:
 - VF Daemon (VFD) - EXPERIMENTAL
 - Dynamic Device Personalization (DDP)
 - Queue region configuration
+- Vitrual Function Port Representors
 
 Prerequisites
 -------------
@@ -109,6 +110,31 @@ Runtime Config Options
   1, 2, 4, 8 or 16. If no such parameter is configured, the number of queues
   per VF is 4 by default.
 
+- ``Support multiple driver`` (default ``disable``)
+
+  There was a multiple driver support issue during use of 700 series Ethernet
+  Adapter with both Linux kernel and DPDK PMD. To fix this issue, ``devargs``
+  parameter ``support-multi-driver`` is introduced, for example::
+
+    -w 84:00.0,support-multi-driver=1
+
+  With the above configuration, DPDK PMD will not change global registers, and
+  will switch PF interrupt from IntN to Int0 to avoid interrupt conflict between
+  DPDK and Linux Kernel.
+
+- ``Support VF Port Representor`` (default ``not enabled``)
+
+  The i40e PF PMD supports the creation of VF port representors for the control
+  and monitoring of i40e virtual function devices. Each port representor
+  corresponds to a single virtual function of that device. Using the ``devargs``
+  option ``representor`` the user can specify which virtual functions to create
+  port representors for on initialization of the PF PMD by passing the VF IDs of
+  the VFs which are required.::
+
+  -w DBDF,representor=[0,1,4]
+
+  Currently hot-plugging of representor ports is not supported so all required
+  representors must be specified on the creation of the PF.
 
 Driver compilation and testing
 ------------------------------

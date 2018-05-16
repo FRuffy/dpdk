@@ -30,16 +30,13 @@
 #include "virtio_pci.h"
 #include "virtqueue.h"
 #include "virtio_rxtx.h"
+#include "virtio_rxtx_simple.h"
 
 #ifdef RTE_LIBRTE_VIRTIO_DEBUG_DUMP
 #define VIRTIO_DUMP_PACKET(m, len) rte_pktmbuf_dump(stdout, m, len)
 #else
 #define  VIRTIO_DUMP_PACKET(m, len) do { } while (0)
 #endif
-
-
-#define VIRTIO_SIMPLE_FLAGS ((uint32_t)ETH_TXQ_FLAGS_NOMULTSEGS | \
-	ETH_TXQ_FLAGS_NOOFFLOADS)
 
 int
 virtio_dev_rx_queue_done(void *rxq, uint16_t offset)
@@ -388,7 +385,7 @@ virtio_dev_rx_queue_setup(struct rte_eth_dev *dev,
 			uint16_t queue_idx,
 			uint16_t nb_desc,
 			unsigned int socket_id __rte_unused,
-			__rte_unused const struct rte_eth_rxconf *rx_conf,
+			const struct rte_eth_rxconf *rx_conf __rte_unused,
 			struct rte_mempool *mp)
 {
 	uint16_t vtpci_queue_idx = 2 * queue_idx + VTNET_SQ_RQ_QUEUE_IDX;
@@ -409,6 +406,7 @@ virtio_dev_rx_queue_setup(struct rte_eth_dev *dev,
 		rte_exit(EXIT_FAILURE,
 			"Cannot allocate mbufs for rx virtqueue");
 	}
+
 	dev->data->rx_queues[queue_idx] = rxvq;
 
 	return 0;
@@ -437,6 +435,8 @@ virtio_dev_rx_queue_setup_finish(struct rte_eth_dev *dev, uint16_t queue_idx)
 			vq->vq_ring.desc[desc_idx].flags =
 				VRING_DESC_F_WRITE;
 		}
+
+		virtio_rxq_vec_setup(rxvq);
 	}
 
 	memset(&rxvq->fake_mbuf, 0, sizeof(rxvq->fake_mbuf));
@@ -446,29 +446,30 @@ virtio_dev_rx_queue_setup_finish(struct rte_eth_dev *dev, uint16_t queue_idx)
 			&rxvq->fake_mbuf;
 	}
 
-	while (!virtqueue_full(vq)) {
-		m = rte_mbuf_raw_alloc(rxvq->mpool);
-		if (m == NULL)
-			break;
-
-		/* Enqueue allocated buffers */
-		if (hw->use_simple_rx)
-			error = virtqueue_enqueue_recv_refill_simple(vq, m);
-		else
-			error = virtqueue_enqueue_recv_refill(vq, m);
-
-		if (error) {
-			rte_pktmbuf_free(m);
-			break;
+	if (hw->use_simple_rx) {
+		while (vq->vq_free_cnt >= RTE_VIRTIO_VPMD_RX_REARM_THRESH) {
+			virtio_rxq_rearm_vec(rxvq);
+			nbufs += RTE_VIRTIO_VPMD_RX_REARM_THRESH;
 		}
-		nbufs++;
+	} else {
+		while (!virtqueue_full(vq)) {
+			m = rte_mbuf_raw_alloc(rxvq->mpool);
+			if (m == NULL)
+				break;
+
+			/* Enqueue allocated buffers */
+			error = virtqueue_enqueue_recv_refill(vq, m);
+			if (error) {
+				rte_pktmbuf_free(m);
+				break;
+			}
+			nbufs++;
+		}
+
+		vq_update_avail_idx(vq);
 	}
 
-	vq_update_avail_idx(vq);
-
 	PMD_INIT_LOG(DEBUG, "Allocated %d bufs", nbufs);
-
-	virtio_rxq_vec_setup(rxvq);
 
 	VIRTQUEUE_DUMP(vq);
 
@@ -498,7 +499,7 @@ virtio_dev_tx_queue_setup(struct rte_eth_dev *dev,
 	PMD_INIT_FUNC_TRACE();
 
 	/* cannot use simple rxtx funcs with multisegs or offloads */
-	if ((tx_conf->txq_flags & VIRTIO_SIMPLE_FLAGS) != VIRTIO_SIMPLE_FLAGS)
+	if (dev->data->dev_conf.txmode.offloads)
 		hw->use_simple_tx = 0;
 
 	if (nb_desc == 0 || nb_desc > vq->vq_nentries)

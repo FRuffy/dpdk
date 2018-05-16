@@ -1,34 +1,6 @@
-/*-
- *   BSD LICENSE
- *
- *   Copyright(c) Broadcom Limited.
- *   All rights reserved.
- *
- *   Redistribution and use in source and binary forms, with or without
- *   modification, are permitted provided that the following conditions
- *   are met:
- *
- *     * Redistributions of source code must retain the above copyright
- *       notice, this list of conditions and the following disclaimer.
- *     * Redistributions in binary form must reproduce the above copyright
- *       notice, this list of conditions and the following disclaimer in
- *       the documentation and/or other materials provided with the
- *       distribution.
- *     * Neither the name of Broadcom Corporation nor the names of its
- *       contributors may be used to endorse or promote products derived
- *       from this software without specific prior written permission.
- *
- *   THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
- *   "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
- *   LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR
- *   A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT
- *   OWNER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
- *   SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT
- *   LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE,
- *   DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY
- *   THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
- *   (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
- *   OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+/* SPDX-License-Identifier: BSD-3-Clause
+ * Copyright(c) 2014-2018 Broadcom
+ * All rights reserved.
  */
 
 #include <inttypes.h>
@@ -69,13 +41,14 @@ static inline int bnxt_alloc_rx_data(struct bnxt_rx_queue *rxq,
 
 	mbuf = __bnxt_alloc_rx_data(rxq->mb_pool);
 	if (!mbuf) {
-		rte_atomic64_inc(&rxq->bp->rx_mbuf_alloc_fail);
+		rte_atomic64_inc(&rxq->rx_mbuf_alloc_fail);
 		return -ENOMEM;
 	}
 
 	rx_buf->mbuf = mbuf;
+	mbuf->data_off = RTE_PKTMBUF_HEADROOM;
 
-	rxbd->addr = rte_cpu_to_le_64(rte_mbuf_data_iova_default(mbuf));
+	rxbd->address = rte_cpu_to_le_64(rte_mbuf_data_iova_default(mbuf));
 
 	return 0;
 }
@@ -90,7 +63,7 @@ static inline int bnxt_alloc_ag_data(struct bnxt_rx_queue *rxq,
 
 	mbuf = __bnxt_alloc_rx_data(rxq->mb_pool);
 	if (!mbuf) {
-		rte_atomic64_inc(&rxq->bp->rx_mbuf_alloc_fail);
+		rte_atomic64_inc(&rxq->rx_mbuf_alloc_fail);
 		return -ENOMEM;
 	}
 
@@ -101,8 +74,9 @@ static inline int bnxt_alloc_ag_data(struct bnxt_rx_queue *rxq,
 
 
 	rx_buf->mbuf = mbuf;
+	mbuf->data_off = RTE_PKTMBUF_HEADROOM;
 
-	rxbd->addr = rte_cpu_to_le_64(rte_mbuf_data_iova_default(mbuf));
+	rxbd->address = rte_cpu_to_le_64(rte_mbuf_data_iova_default(mbuf));
 
 	return 0;
 }
@@ -123,7 +97,7 @@ static inline void bnxt_reuse_rx_mbuf(struct bnxt_rx_ring_info *rxr,
 
 	prod_bd = &rxr->rx_desc_ring[prod];
 
-	prod_bd->addr = rte_cpu_to_le_64(rte_mbuf_data_iova_default(mbuf));
+	prod_bd->address = rte_cpu_to_le_64(rte_mbuf_data_iova_default(mbuf));
 
 	rxr->rx_prod = prod;
 }
@@ -143,7 +117,7 @@ static void bnxt_reuse_ag_mbuf(struct bnxt_rx_ring_info *rxr, uint16_t cons,
 	prod_bd = &rxr->ag_desc_ring[prod];
 	cons_bd = &rxr->ag_desc_ring[cons];
 
-	prod_bd->addr = cons_bd->addr;
+	prod_bd->address = cons_bd->addr;
 }
 #endif
 
@@ -327,7 +301,7 @@ static inline struct rte_mbuf *bnxt_tpa_end(
 	struct rte_mbuf *new_data = __bnxt_alloc_rx_data(rxq->mb_pool);
 	RTE_ASSERT(new_data != NULL);
 	if (!new_data) {
-		rte_atomic64_inc(&rxq->bp->rx_mbuf_alloc_fail);
+		rte_atomic64_inc(&rxq->rx_mbuf_alloc_fail);
 		return NULL;
 	}
 	tpa_info->mbuf = new_data;
@@ -338,41 +312,57 @@ static inline struct rte_mbuf *bnxt_tpa_end(
 static uint32_t
 bnxt_parse_pkt_type(struct rx_pkt_cmpl *rxcmp, struct rx_pkt_cmpl_hi *rxcmp1)
 {
-	uint32_t pkt_type = 0;
-	uint32_t t_ipcs = 0, ip = 0, ip6 = 0;
-	uint32_t tcp = 0, udp = 0, icmp = 0;
-	uint32_t vlan = 0;
+	uint32_t l3, pkt_type = 0;
+	uint32_t t_ipcs = 0, ip6 = 0, vlan = 0;
+	uint32_t flags_type;
 
 	vlan = !!(rxcmp1->flags2 &
 		rte_cpu_to_le_32(RX_PKT_CMPL_FLAGS2_META_FORMAT_VLAN));
+	pkt_type |= vlan ? RTE_PTYPE_L2_ETHER_VLAN : RTE_PTYPE_L2_ETHER;
+
 	t_ipcs = !!(rxcmp1->flags2 &
 		rte_cpu_to_le_32(RX_PKT_CMPL_FLAGS2_T_IP_CS_CALC));
 	ip6 = !!(rxcmp1->flags2 &
 		 rte_cpu_to_le_32(RX_PKT_CMPL_FLAGS2_IP_TYPE));
-	icmp = !!(rxcmp->flags_type &
-		  rte_cpu_to_le_16(RX_PKT_CMPL_FLAGS_ITYPE_ICMP));
-	tcp = !!(rxcmp->flags_type &
-		 rte_cpu_to_le_16(RX_PKT_CMPL_FLAGS_ITYPE_TCP));
-	udp = !!(rxcmp->flags_type &
-		 rte_cpu_to_le_16(RX_PKT_CMPL_FLAGS_ITYPE_UDP));
-	ip = !!(rxcmp->flags_type &
-		rte_cpu_to_le_16(RX_PKT_CMPL_FLAGS_ITYPE_IP));
 
-	pkt_type |= ((ip || tcp || udp || icmp) && !t_ipcs && !ip6) ?
-		RTE_PTYPE_L3_IPV4_EXT_UNKNOWN : 0;
-	pkt_type |= ((ip || tcp || udp || icmp) && !t_ipcs && ip6) ?
-		RTE_PTYPE_L3_IPV6_EXT_UNKNOWN : 0;
-	pkt_type |= (!t_ipcs &&  icmp) ? RTE_PTYPE_L4_ICMP : 0;
-	pkt_type |= (!t_ipcs &&  udp) ? RTE_PTYPE_L4_UDP : 0;
-	pkt_type |= (!t_ipcs &&  tcp) ? RTE_PTYPE_L4_TCP : 0;
-	pkt_type |= ((ip || tcp || udp || icmp) && t_ipcs && !ip6) ?
-		RTE_PTYPE_INNER_L3_IPV4_EXT_UNKNOWN : 0;
-	pkt_type |= ((ip || tcp || udp || icmp) && t_ipcs && ip6) ?
-		RTE_PTYPE_INNER_L3_IPV6_EXT_UNKNOWN : 0;
-	pkt_type |= (t_ipcs &&  icmp) ? RTE_PTYPE_INNER_L4_ICMP : 0;
-	pkt_type |= (t_ipcs &&  udp) ? RTE_PTYPE_INNER_L4_UDP : 0;
-	pkt_type |= (t_ipcs &&  tcp) ? RTE_PTYPE_INNER_L4_TCP : 0;
-	pkt_type |= vlan ? RTE_PTYPE_L2_ETHER_VLAN : 0;
+	flags_type = rxcmp->flags_type &
+		rte_cpu_to_le_32(RX_PKT_CMPL_FLAGS_ITYPE_MASK);
+
+	if (!t_ipcs && !ip6)
+		l3 = RTE_PTYPE_L3_IPV4_EXT_UNKNOWN;
+	else if (!t_ipcs && ip6)
+		l3 = RTE_PTYPE_L3_IPV6_EXT_UNKNOWN;
+	else if (t_ipcs && !ip6)
+		l3 = RTE_PTYPE_INNER_L3_IPV4_EXT_UNKNOWN;
+	else
+		l3 = RTE_PTYPE_INNER_L3_IPV6_EXT_UNKNOWN;
+
+	switch (flags_type) {
+	case RTE_LE32(RX_PKT_CMPL_FLAGS_ITYPE_ICMP):
+		if (!t_ipcs)
+			pkt_type |= l3 | RTE_PTYPE_L4_ICMP;
+		else
+			pkt_type |= l3 | RTE_PTYPE_INNER_L4_ICMP;
+		break;
+
+	case RTE_LE32(RX_PKT_CMPL_FLAGS_ITYPE_TCP):
+		if (!t_ipcs)
+			pkt_type |= l3 | RTE_PTYPE_L4_TCP;
+		else
+			pkt_type |= l3 | RTE_PTYPE_INNER_L4_TCP;
+		break;
+
+	case RTE_LE32(RX_PKT_CMPL_FLAGS_ITYPE_UDP):
+		if (!t_ipcs)
+			pkt_type |= l3 | RTE_PTYPE_L4_UDP;
+		else
+			pkt_type |= l3 | RTE_PTYPE_INNER_L4_UDP;
+		break;
+
+	case RTE_LE32(RX_PKT_CMPL_FLAGS_ITYPE_IP):
+		pkt_type |= l3;
+		break;
+	}
 
 	return pkt_type;
 }
@@ -475,12 +465,12 @@ static int bnxt_rx_pkt(struct rte_mbuf **rx_pkt,
 	if (likely(RX_CMP_IP_CS_OK(rxcmp1)))
 		mbuf->ol_flags |= PKT_RX_IP_CKSUM_GOOD;
 	else
-		mbuf->ol_flags |= PKT_RX_IP_CKSUM_NONE;
+		mbuf->ol_flags |= PKT_RX_IP_CKSUM_BAD;
 
 	if (likely(RX_CMP_L4_CS_OK(rxcmp1)))
 		mbuf->ol_flags |= PKT_RX_L4_CKSUM_GOOD;
 	else
-		mbuf->ol_flags |= PKT_RX_L4_CKSUM_NONE;
+		mbuf->ol_flags |= PKT_RX_L4_CKSUM_BAD;
 
 	mbuf->packet_type = bnxt_parse_pkt_type(rxcmp, rxcmp1);
 
@@ -739,7 +729,7 @@ int bnxt_init_one_rx_ring(struct bnxt_rx_queue *rxq)
 	if (rxq->rx_buf_use_size <= size)
 		size = rxq->rx_buf_use_size;
 
-	type = RX_PROD_PKT_BD_TYPE_RX_PROD_PKT;
+	type = RX_PROD_PKT_BD_TYPE_RX_PROD_PKT | RX_PROD_PKT_BD_FLAGS_EOP_PAD;
 
 	rxr = rxq->rx_ring;
 	ring = rxr->rx_ring_struct;
@@ -779,7 +769,7 @@ int bnxt_init_one_rx_ring(struct bnxt_rx_queue *rxq)
 			rxr->tpa_info[i].mbuf =
 				__bnxt_alloc_rx_data(rxq->mb_pool);
 			if (!rxr->tpa_info[i].mbuf) {
-				rte_atomic64_inc(&rxq->bp->rx_mbuf_alloc_fail);
+				rte_atomic64_inc(&rxq->rx_mbuf_alloc_fail);
 				return -ENOMEM;
 			}
 		}
